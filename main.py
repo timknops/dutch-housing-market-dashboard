@@ -1,37 +1,19 @@
 import streamlit as st
 
-from data.fetch_cbs import fetch_quarterly_prices
-from data.fetch_ecb import fetch_mortgage_rates
+from pages.market_overview import render as market_overview
 
 st.set_page_config(page_title="Dutch Housing Market", layout="wide")
 st.title("Dutch Housing Market Dashboard")
 
-prices = fetch_quarterly_prices()
-rates = fetch_mortgage_rates()
+tab1, tab2, tab3 = st.tabs(
+    ["Market Overview", "Regional Analysis", "Affordability"]
+)
 
-national = prices[prices["region"] == "Nederland"].sort_values("date")
-aggregate_rate = rates[rates["fixation"] == "AM"].sort_values("date")
+with tab1:
+    market_overview()
 
-col1, col2 = st.columns(2)
+with tab2:
+    st.info("Regional Analysis — coming soon.")
 
-with col1:
-    st.subheader("Average purchase price (quarterly)")
-    st.caption(
-        "Source: CBS: average sale price of existing owner-occupied homes."
-    )
-    st.line_chart(
-        national.rename(columns={"avg_price": "avg price (€)"}),
-        x="date",
-        y="avg price (€)",
-    )
-
-with col2:
-    st.subheader("Mortgage interest rate (monthly)")
-    st.caption(
-        "Source: ECB: average rate on new mortgage loans in the Netherlands."
-    )
-    st.line_chart(
-        aggregate_rate.rename(columns={"rate": "rate (%)"}),
-        x="date",
-        y="rate (%)",
-    )
+with tab3:
+    st.info("Affordability — coming soon.")

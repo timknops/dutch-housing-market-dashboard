@@ -8,7 +8,8 @@ TABLE_PRICES_MUNICIPAL = "83625ENG"
 
 @st.cache_data(ttl=3600, show_spinner="Fetching CBS quarterly price data…")
 def fetch_quarterly_prices() -> pd.DataFrame:
-    """Fetch 85792ENG: price index + avg price by province, quarterly from 1995."""
+    """Fetch 85792ENG: price index + avg price by province,
+    quarterly from 1995."""
     raw = pd.DataFrame(cbsodata.get_data(TABLE_PRICES_QUARTERLY))
 
     df = raw.rename(
@@ -25,7 +26,12 @@ def fetch_quarterly_prices() -> pd.DataFrame:
     df["period"] = df["period"].str.strip()
 
     df["year"] = df["period"].str[:4].astype(int)
-    quarter_map = {"1st quarter": 1, "2nd quarter": 2, "3rd quarter": 3, "4th quarter": 4}
+    quarter_map = {
+        "1st quarter": 1,
+        "2nd quarter": 2,
+        "3rd quarter": 3,
+        "4th quarter": 4,
+    }
     df["quarter"] = df["period"].str[5:].map(quarter_map)
 
     quarterly = df[df["quarter"].notna()].copy()
@@ -41,7 +47,8 @@ def fetch_quarterly_prices() -> pd.DataFrame:
 
 @st.cache_data(ttl=3600, show_spinner="Fetching CBS municipal price data…")
 def fetch_municipal_prices() -> pd.DataFrame:
-    """Fetch 83625ENG: average purchase price by municipality, annual from 1995."""
+    """Fetch 83625ENG: average purchase price by municipality,
+    annual from 1995."""
     raw = pd.DataFrame(cbsodata.get_data(TABLE_PRICES_MUNICIPAL))
 
     df = raw.rename(
