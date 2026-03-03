@@ -5,6 +5,20 @@ from data.fetch_cbs import fetch_quarterly_prices
 from data.fetch_ecb import fetch_mortgage_rates
 
 
+def _format_period(period: str) -> str:
+    """Convert '2025 4th quarter' to 'Q4 2025'."""
+    quarter_map = {
+        "1st quarter": "Q1",
+        "2nd quarter": "Q2",
+        "3rd quarter": "Q3",
+        "4th quarter": "Q4",
+    }
+    parts = period.strip().split(" ", 1)
+    year = parts[0]
+    label = quarter_map.get(parts[1], parts[1]) if len(parts) > 1 else ""
+    return f"{label} {year}"
+
+
 def show_caption():
     st.header("Market Overview")
     st.caption(
@@ -39,17 +53,23 @@ def show_kpis(national, aggregate_rate):
         else 0
     )
 
-    k1, k2, k3, k4 = st.columns(4)
+    period = _format_period(latest["period"])
+    k1, k2, k3 = st.columns(3)
     k1.metric(
-        "Avg purchase price",
+        f"Avg purchase price ({period})",
         f"€{latest['avg_price']:,.0f}",
         f"{price_yoy:+.1%} YoY",
     )
     k2.metric(
-        "Mortgage rate", f"{latest_rate:.2f}%", f"{rate_change:+.2f}pp YoY"
+        f"Mortgage rate ({period})",
+        f"{latest_rate:.2f}%",
+        f"{rate_change:+.2f}pp YoY",
     )
-    k3.metric("Houses sold", f"{latest_sales:,.0f}", f"{sales_yoy:+.1%} YoY")
-    k4.metric("Period", f"{latest['period']}")
+    k3.metric(
+        f"Houses sold ({period})",
+        f"{latest_sales:,.0f}",
+        f"{sales_yoy:+.1%} YoY",
+    )
     st.divider()
 
 
@@ -58,34 +78,25 @@ def show_national_trends(national, aggregate_rate):
 
     with col1:
         st.subheader("Average purchase price")
-        st.caption(
-            "Source: CBS, owner-occupied homes, quarterly."
-        )
+        st.caption("Source: CBS, owner-occupied homes, quarterly.")
         st.line_chart(
-            national.rename(
-                columns={"avg_price": "avg price (€)"}
-            ),
+            national.rename(columns={"avg_price": "avg price (€)"}),
             x="date",
             y="avg price (€)",
         )
 
     with col2:
         st.subheader("Mortgage interest rate")
-        st.caption(
-            "Source: ECB, new mortgage loans, monthly."
-        )
+        st.caption("Source: ECB, new mortgage loans, monthly.")
         st.line_chart(
-            aggregate_rate.rename(
-                columns={"rate": "rate (%)"}
-            ),
+            aggregate_rate.rename(columns={"rate": "rate (%)"}),
             x="date",
             y="rate (%)",
         )
-
     st.divider()
 
 
-def show_province_price_over_time(prices):
+def show_province_comparison(prices):
     st.subheader("Average price by province over time")
 
     provinces = prices[prices["region"].str.endswith("(PV)")].copy()
@@ -97,28 +108,34 @@ def show_province_price_over_time(prices):
     selected = st.multiselect(
         "Select provinces to compare",
         all_provinces,
-        default=["Noord-Holland", "Zuid-Holland", "Groningen", "Limburg"],
+        default=[
+            "Noord-Holland",
+            "Zuid-Holland",
+            "Groningen",
+            "Limburg",
+        ],
     )
 
     if selected:
         filtered = provinces[provinces["province"].isin(selected)]
         pivot = filtered.pivot_table(
-            index="date", columns="province", values="avg_price"
+            index="date",
+            columns="province",
+            values="avg_price",
         )
         st.line_chart(pivot)
     else:
         st.warning("Select at least one province.")
 
 
-def render():
-    show_caption()
+prices = fetch_quarterly_prices()
+rates = fetch_mortgage_rates()
 
-    prices = fetch_quarterly_prices()
-    rates = fetch_mortgage_rates()
+national = prices[prices["region"] == "Nederland"].sort_values("date")
+aggregate_rate = rates[rates["fixation"] == "AM"].sort_values("date")
 
-    national = prices[prices["region"] == "Nederland"].sort_values("date")
-    aggregate_rate = rates[rates["fixation"] == "AM"].sort_values("date")
+show_caption()
 
-    show_kpis(national, aggregate_rate)
-    show_national_trends(national, aggregate_rate)
-    show_province_price_over_time(prices)
+show_kpis(national, aggregate_rate)
+show_national_trends(national, aggregate_rate)
+show_province_comparison(prices)

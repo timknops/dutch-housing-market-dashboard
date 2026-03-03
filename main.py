@@ -1,19 +1,22 @@
 import streamlit as st
 
-from pages.market_overview import render as market_overview
-
-st.set_page_config(page_title="Dutch Housing Market", layout="wide")
-st.title("Dutch Housing Market Dashboard")
-
-tab1, tab2, tab3 = st.tabs(
-    ["Market Overview", "Regional Analysis", "Affordability"]
+st.set_page_config(
+    page_title="Dutch Housing Market",
+    layout="wide",
 )
 
-with tab1:
-    market_overview()
+overview = st.Page(
+    "pages/market_overview.py",
+    title="Market Overview",
+)
+regional = st.Page(
+    "pages/regional_analysis.py",
+    title="Regional Analysis",
+)
+affordability = st.Page(
+    "pages/affordability.py",
+    title="Affordability",
+)
 
-with tab2:
-    st.info("Regional Analysis — coming soon.")
-
-with tab3:
-    st.info("Affordability — coming soon.")
+pg = st.navigation([overview, regional, affordability])
+pg.run()
