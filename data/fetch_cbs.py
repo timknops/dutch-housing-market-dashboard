@@ -1,16 +1,13 @@
 import cbsodata
 import pandas as pd
-import streamlit as st
+import streamlit as st  
 
 TABLE_PRICES_QUARTERLY = "85792ENG"
 TABLE_PRICES_MUNICIPAL = "83625ENG"
-<<<<<<< HEAD
 TABLE_PRICES_QUARTERLY = "85792ENG"
 TABLE_PRICES_MUNICIPAL = "83625ENG"
 TABLE_DEMOGRAPHICS = "85210ENG"
-=======
 TABLE_ENERGY_MUNICIPAL = "86159NED"
->>>>>>> main
 
 
 @st.cache_data(ttl=3600, show_spinner="Fetching CBS quarterly price data…")
@@ -83,7 +80,6 @@ def fetch_municipal_prices() -> pd.DataFrame:
 
     return df
 
-<<<<<<< HEAD
 @st.cache_data(ttl=3600, show_spinner="Fetching CBS demographic data…")
 def fetch_demographics() -> pd.DataFrame:
     """Fetch demographic and housing indicators by municipality"""
@@ -114,7 +110,6 @@ def fetch_demographics() -> pd.DataFrame:
     df["year"] = df["year"].str[:4].astype(int)
 
     return df
-=======
 
 @st.cache_data(
     ttl=3600,
@@ -152,4 +147,3 @@ def fetch_energy_consumption() -> pd.DataFrame:
         ["region", "avg_gas", "avg_elec",
          "pct_district_heating"]
     ].reset_index(drop=True)
->>>>>>> main
