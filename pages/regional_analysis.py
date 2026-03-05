@@ -56,11 +56,27 @@ def show_region_drilldown(prices: pd.DataFrame) -> None:
     all_provinces = sorted(cast(list[str], provinces["province"].unique().tolist()))
     selected_province = st.selectbox("Select province", all_provinces, index=all_provinces.index("Noord-Holland"))
 
-    available_municipalities = sorted(cast(list[str], municipalities_latest["region"].dropna().unique().tolist()))
-    hardcoded_municipalities = _resolve_hardcoded_municipalities(selected_province, available_municipalities)
+    # Filter out municipalities that have no data in the last 10 years
+    recent_start = latest_year - 9
+    recent = municipalities[municipalities["year"].between(recent_start, latest_year)]
+    municipalities_with_recent = (
+        recent.groupby("region")["avg_price"].apply(lambda s: s.notna().any())
+    )
+    valid_municipalities = set(municipalities_with_recent[municipalities_with_recent].index.tolist())
 
-    if hardcoded_municipalities: municipality_options = hardcoded_municipalities
-    else: municipality_options = available_municipalities
+    available_municipalities = sorted(
+        m for m in municipalities_latest["region"].dropna().unique().tolist() if m in valid_municipalities
+    )
+
+    hardcoded_municipalities = [
+        m for m in _resolve_hardcoded_municipalities(selected_province, available_municipalities)
+        if m in valid_municipalities
+    ]
+
+    if hardcoded_municipalities:
+        municipality_options = hardcoded_municipalities
+    else:
+        municipality_options = available_municipalities
 
     selected_municipalities = st.multiselect(
         "Select municipalities to compare",
@@ -68,8 +84,6 @@ def show_region_drilldown(prices: pd.DataFrame) -> None:
         default=municipality_options,
         key=f"municipality_select_{selected_province}",
     )
-
-    st.write(f"{len(selected_municipalities)}")
 
     if selected_municipalities:
         selection = municipalities[municipalities["region"].isin(selected_municipalities)].copy()
