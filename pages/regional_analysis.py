@@ -1,26 +1,61 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import altair as alt
+import unicodedata
+from typing import cast
 
 from data.fetch_cbs import fetch_municipal_prices
+from data.province_municipality_map import PROVINCE_MUNICIPALITIES
+
+
+# ========================
+# Helpers (from main branch)
+# ========================
+
+def _normalize_name(value: str) -> str:
+    value = value.strip().lower()
+    value = value.replace("\u2019", "'").replace("\u2018", "'").replace("`", "'")
+    value = unicodedata.normalize("NFKD", value)
+    value = "".join(char for char in value if not unicodedata.combining(char))
+    return " ".join(value.split())
+
+
+def _resolve_hardcoded_municipalities(
+    province: str,
+    available_municipalities: list[str],
+) -> list[str]:
+    wanted = PROVINCE_MUNICIPALITIES.get(province, [])
+    normalized_lookup: dict[str, list[str]] = {}
+    for municipality in available_municipalities:
+        key = _normalize_name(municipality)
+        normalized_lookup.setdefault(key, []).append(municipality)
+    resolved: list[str] = []
+    seen: set[str] = set()
+    for municipality in wanted:
+        for match in normalized_lookup.get(_normalize_name(municipality), []):
+            if match not in seen:
+                resolved.append(match)
+                seen.add(match)
+    return sorted(resolved)
+
+
+# ========================
+# Load data
+# ========================
 
 st.header("Regional Housing Analysis")
 st.caption(
     "This section explores differences in housing prices across Dutch municipalities."
 )
 
-# ========================
-# Load data
-# ========================
+df_all = fetch_municipal_prices()
+df_all = df_all.dropna(subset=["avg_price", "region", "year"])
+df_all = df_all[~df_all["region"].str.contains(r"\((?:PV|LD)\)$", regex=True, na=False)]
+df_all = df_all[df_all["region"] != "The Netherlands"]
 
-df = fetch_municipal_prices()
-df = df.dropna(subset=["avg_price", "region", "year"])
-
-latest_year = df["year"].max()
-df = df[df["year"] == latest_year]
-
-df = df[~df["region"].str.endswith("(PV)")]
-df = df[df["region"] != "Nederland"]
+latest_year = int(df_all["year"].max())
+df = df_all[df_all["year"] == latest_year].copy()
 
 national_avg = df["avg_price"].mean()
 
@@ -119,36 +154,65 @@ else:
 st.divider()
 
 # ========================
-# Price over time for selected municipalities
+# Province drill-down (from main branch)
 # ========================
 
-st.subheader("Price Over Time by Municipality")
+st.subheader("Municipality / Province Drill-down")
 
-df_all = fetch_municipal_prices()
-df_all = df_all.dropna(subset=["avg_price", "region", "year"])
-df_all = df_all[~df_all["region"].str.endswith("(PV)")]
-df_all = df_all[df_all["region"] != "Nederland"]
+recent_start = latest_year - 9
+recent = df_all[df_all["year"].between(recent_start, latest_year)]
+municipalities_with_recent = (
+    recent.groupby("region")["avg_price"].apply(lambda s: s.notna().any())
+)
+valid_municipalities = set(municipalities_with_recent[municipalities_with_recent].index.tolist())
 
-all_regions = sorted(df_all["region"].unique())
-selected = st.multiselect(
-    "Select municipalities to compare",
-    all_regions,
-    default=all_regions[:4] if len(all_regions) >= 4 else all_regions,
+available_municipalities = sorted(
+    m for m in df["region"].dropna().unique().tolist() if m in valid_municipalities
 )
 
-if selected:
-    filtered = df_all[df_all["region"].isin(selected)]
-    fig4 = px.line(
-        filtered,
-        x="year",
-        y="avg_price",
-        color="region",
-        title="Average House Price Over Time",
-        labels={"avg_price": "Avg Price (€)", "year": "Year", "region": "Municipality"},
+all_provinces = sorted(list(PROVINCE_MUNICIPALITIES.keys()))
+default_province = "Noord-Holland"
+default_index = all_provinces.index(default_province) if default_province in all_provinces else 0
+
+selected_province = st.selectbox("Select province", all_provinces, index=default_index)
+
+hardcoded_municipalities = [
+    m for m in _resolve_hardcoded_municipalities(selected_province, available_municipalities)
+    if m in valid_municipalities
+]
+municipality_options = hardcoded_municipalities if hardcoded_municipalities else available_municipalities
+
+selected_municipalities = st.multiselect(
+    "Select municipalities to compare",
+    municipality_options,
+    default=municipality_options,
+    key=f"municipality_select_{selected_province}",
+)
+
+if selected_municipalities:
+    selection = df_all[df_all["region"].isin(selected_municipalities)].copy()
+    trend = cast(pd.DataFrame, selection.groupby(["year", "region"], as_index=False)["avg_price"].mean())
+
+    st.subheader("Municipality Price Trends")
+    chart = (
+        alt.Chart(trend)
+        .mark_line()
+        .encode(
+            x=alt.X("year:Q", axis=alt.Axis(format="d", title="Year")),
+            y=alt.Y("avg_price:Q", title="Average Purchase Price (€)"),
+            color=alt.Color(
+                "region:N",
+                title="Municipality",
+                legend=alt.Legend(orient="right", direction="vertical"),
+            ),
+            tooltip=["region:N", alt.Tooltip("year:Q", format=".0f"), "avg_price:Q"],
+        )
+        .properties(height=420)
+        .interactive()
     )
-    st.plotly_chart(fig4, use_container_width=True)
+    st.altair_chart(chart, use_container_width=True)
 else:
-    st.warning("Select at least one municipality.")
+    st.warning("Select at least one municipality to show the chart.")
 
 st.divider()
 
