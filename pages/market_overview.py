@@ -1,5 +1,6 @@
 import pandas as pd
 import streamlit as st
+import plotly.express as px
 
 from data.fetch_cbs import fetch_quarterly_prices
 from data.fetch_ecb import fetch_mortgage_rates
@@ -34,18 +35,27 @@ def show_caption():
 
 def show_kpis(national, aggregate_rate):
     latest = national.iloc[-1]
-    prev_year = national[national["year"] == latest["year"] - 1].iloc[-1]
-    price_yoy = (latest["avg_price"] - prev_year["avg_price"]) / prev_year[
-        "avg_price"
-    ]
+
+    prev_year_df = national[national["year"] == latest["year"] - 1]
+    if prev_year_df.empty:
+        st.warning("Not enough historical data to compute year-over-year changes.")
+        return
+
+    prev_year = prev_year_df.iloc[-1]
+    price_yoy = (latest["avg_price"] - prev_year["avg_price"]) / prev_year["avg_price"]
 
     latest_rate = aggregate_rate.iloc[-1]["rate"]
-    rate_1y_ago = aggregate_rate[
+    rate_1y_ago_df = aggregate_rate[
         aggregate_rate["date"] <= latest["date"] - pd.DateOffset(years=1)
-    ].iloc[-1]["rate"]
+    ]
+    if rate_1y_ago_df.empty:
+        st.warning("Not enough rate history to compute year-over-year rate change.")
+        return
+
+    rate_1y_ago = rate_1y_ago_df.iloc[-1]["rate"]
     rate_change = latest_rate - rate_1y_ago
 
-    latest_sales = national.iloc[-1]["n_sales"]
+    latest_sales = latest["n_sales"]
     prev_year_sales = prev_year["n_sales"]
     sales_yoy = (
         (latest_sales - prev_year_sales) / prev_year_sales
@@ -128,6 +138,10 @@ def show_province_comparison(prices):
         st.warning("Select at least one province.")
 
 
+# ========================
+# Main
+# ========================
+
 prices = fetch_quarterly_prices()
 rates = fetch_mortgage_rates()
 
@@ -135,7 +149,6 @@ national = prices[prices["region"] == "Nederland"].sort_values("date")
 aggregate_rate = rates[rates["fixation"] == "AM"].sort_values("date")
 
 show_caption()
-
 show_kpis(national, aggregate_rate)
 show_national_trends(national, aggregate_rate)
 show_province_comparison(prices)

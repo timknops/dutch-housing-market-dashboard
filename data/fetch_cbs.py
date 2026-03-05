@@ -4,6 +4,9 @@ import streamlit as st
 
 TABLE_PRICES_QUARTERLY = "85792ENG"
 TABLE_PRICES_MUNICIPAL = "83625ENG"
+TABLE_PRICES_QUARTERLY = "85792ENG"
+TABLE_PRICES_MUNICIPAL = "83625ENG"
+TABLE_DEMOGRAPHICS = "85210ENG"
 
 
 @st.cache_data(ttl=3600, show_spinner="Fetching CBS quarterly price data…")
@@ -62,5 +65,36 @@ def fetch_municipal_prices() -> pd.DataFrame:
     df["region"] = df["region"].str.strip()
     df["period"] = df["period"].str.strip()
     df["year"] = df["period"].str[:4].astype(int)
+
+    return df
+
+@st.cache_data(ttl=3600, show_spinner="Fetching CBS demographic data…")
+def fetch_demographics() -> pd.DataFrame:
+    """Fetch demographic and housing indicators by municipality"""
+
+    raw = pd.DataFrame(cbsodata.get_data(TABLE_DEMOGRAPHICS))
+
+    df = raw.rename(
+        columns={
+            "Regions": "region",
+            "Periods": "year",
+
+            "AverageDisposableIncome_1": "income",
+            "AverageWOZValueOfDwellings_2": "woz_value",
+
+            "TotalDwellings_3": "houses",
+            "PrivateHouseholds_4": "households",
+
+            "PopulationDensity_5": "density",
+
+            "HighlyEducatedPopulation_6": "high_education_pct",
+            "Population65YearsOrOlder_7": "age65_pct",
+
+            "UrbanisationLevel_8": "urban_index",
+        }
+    )
+
+    df["region"] = df["region"].str.strip()
+    df["year"] = df["year"].str[:4].astype(int)
 
     return df
