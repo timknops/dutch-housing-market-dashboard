@@ -1,4 +1,4 @@
-import cbsodata
+import cbsodata # pyright: ignore[reportMissingTypeStubs]
 import pandas as pd
 import streamlit as st
 
@@ -10,7 +10,7 @@ TABLE_PRICES_MUNICIPAL = "83625ENG"
 def fetch_quarterly_prices() -> pd.DataFrame:
     """Fetch 85792ENG: price index + avg price by province,
     quarterly from 1995."""
-    raw = pd.DataFrame(cbsodata.get_data(TABLE_PRICES_QUARTERLY))
+    raw = pd.DataFrame(cbsodata.get_data(TABLE_PRICES_QUARTERLY))  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType, reportUnknownMemberType]
 
     df = raw.rename(
         columns={
@@ -49,7 +49,7 @@ def fetch_quarterly_prices() -> pd.DataFrame:
 def fetch_municipal_prices() -> pd.DataFrame:
     """Fetch 83625ENG: average purchase price by municipality,
     annual from 1995."""
-    raw = pd.DataFrame(cbsodata.get_data(TABLE_PRICES_MUNICIPAL))
+    raw = pd.DataFrame(cbsodata.get_data(TABLE_PRICES_MUNICIPAL))  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType, reportUnknownMemberType]
 
     df = raw.rename(
         columns={
