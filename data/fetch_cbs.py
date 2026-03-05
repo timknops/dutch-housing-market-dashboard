@@ -1,9 +1,7 @@
-import cbsodata # pyright: ignore[reportMissingTypeStubs]
+import cbsodata
 import pandas as pd
-import streamlit as st  
+import streamlit as st
 
-TABLE_PRICES_QUARTERLY = "85792ENG"
-TABLE_PRICES_MUNICIPAL = "83625ENG"
 TABLE_PRICES_QUARTERLY = "85792ENG"
 TABLE_PRICES_MUNICIPAL = "83625ENG"
 TABLE_DEMOGRAPHICS = "85210ENG"
@@ -14,7 +12,7 @@ TABLE_ENERGY_MUNICIPAL = "86159NED"
 def fetch_quarterly_prices() -> pd.DataFrame:
     """Fetch 85792ENG: price index + avg price by province,
     quarterly from 1995."""
-    raw = pd.DataFrame(cbsodata.get_data(TABLE_PRICES_QUARTERLY))  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType, reportUnknownMemberType]
+    raw = pd.DataFrame(cbsodata.get_data(TABLE_PRICES_QUARTERLY))
 
     df = raw.rename(
         columns={
@@ -78,6 +76,7 @@ def fetch_municipal_prices() -> pd.DataFrame:
 
     return df
 
+
 @st.cache_data(ttl=3600, show_spinner="Fetching CBS demographic data…")
 def fetch_demographics() -> pd.DataFrame:
     """Fetch demographic and housing indicators by municipality"""
@@ -88,18 +87,13 @@ def fetch_demographics() -> pd.DataFrame:
         columns={
             "Regions": "region",
             "Periods": "year",
-
             "AverageDisposableIncome_1": "income",
             "AverageWOZValueOfDwellings_2": "woz_value",
-
             "TotalDwellings_3": "houses",
             "PrivateHouseholds_4": "households",
-
             "PopulationDensity_5": "density",
-
             "HighlyEducatedPopulation_6": "high_education_pct",
             "Population65YearsOrOlder_7": "age65_pct",
-
             "UrbanisationLevel_8": "urban_index",
         }
     )
@@ -108,6 +102,7 @@ def fetch_demographics() -> pd.DataFrame:
     df["year"] = df["year"].str[:4].astype(int)
 
     return df
+
 
 @st.cache_data(
     ttl=3600,
@@ -120,28 +115,25 @@ def fetch_energy_consumption() -> pd.DataFrame:
     Returns one row per municipality with columns:
       region, avg_gas, avg_electricity, pct_district_heating
     """
-    raw = pd.DataFrame(
-        cbsodata.get_data(TABLE_ENERGY_MUNICIPAL)
-    )
+    raw = pd.DataFrame(cbsodata.get_data(TABLE_ENERGY_MUNICIPAL))
     raw["SoortRegio_2"] = raw["SoortRegio_2"].str.strip()
-    raw["Woningkenmerken"] = (
-        raw["Woningkenmerken"].str.strip()
-    )
+    raw["Woningkenmerken"] = raw["Woningkenmerken"].str.strip()
 
     muni = raw[
         (raw["SoortRegio_2"] == "Gemeente")
         & (raw["Woningkenmerken"] == "Totaal woningen")
     ].copy()
 
-    df = muni.rename(columns={
-        "Gemeentenaam_1": "region",
-        "GemiddeldAardgasverbruik_4": "avg_gas",
-        "GemiddeldeElektriciteitslevering_5": "avg_elec",
-        "Stadsverwarming_7": "pct_district_heating",
-    })
+    df = muni.rename(
+        columns={
+            "Gemeentenaam_1": "region",
+            "GemiddeldAardgasverbruik_4": "avg_gas",
+            "GemiddeldeElektriciteitslevering_5": "avg_elec",
+            "Stadsverwarming_7": "pct_district_heating",
+        }
+    )
     df["region"] = df["region"].str.strip()
 
     return df[
-        ["region", "avg_gas", "avg_elec",
-         "pct_district_heating"]
+        ["region", "avg_gas", "avg_elec", "pct_district_heating"]
     ].reset_index(drop=True)
