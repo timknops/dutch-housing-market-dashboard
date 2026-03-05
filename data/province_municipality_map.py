@@ -238,7 +238,7 @@ PROVINCE_MUNICIPALITIES: dict[str, list[str]] = {
 "Echt",
 "Echt-Susteren",
 "Eijsden",
-"Eidsden-Margraten",
+"Eijsden-Margraten",
 "Geleen",
 "Gennep",
 "Grubbenvorst",
