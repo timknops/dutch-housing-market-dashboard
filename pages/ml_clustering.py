@@ -1,11 +1,12 @@
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
+from plotly.subplots import make_subplots
 
 from data.fetch_cbs import (
     fetch_energy_consumption,
     fetch_municipal_prices,
 )
-from data.fetch_ecb import fetch_mortgage_rates
 from ml.clustering import (
     CLUSTER_FEATURES,
     SEGMENT_DESCRIPTIONS,
@@ -16,9 +17,8 @@ from ml.clustering import (
 st.header("Housing Market Segments")
 st.caption(
     "Every dot below is a Dutch municipality, profiled using "
-    "three datasets: **CBS house prices**, **ECB mortgage "
-    "rates**, and **CBS energy consumption**. We use machine "
-    "learning (k-means) to group them into distinct types of "
+    "three datasets: **CBS house prices** and **CBS energy consumption**. "
+    "We use machine learning (k-means) to group them into distinct types of "
     "housing markets."
 )
 
@@ -27,16 +27,25 @@ st.caption(
 # ------------------------------------------------------------------
 
 
-@st.cache_data(show_spinner="Computing municipality features…")
+@st.cache_data(show_spinner=False)
+def _cached_prices():
+    return fetch_municipal_prices()
+
+
+@st.cache_data(show_spinner=False)
+def _cached_energy():
+    return fetch_energy_consumption()
+
+
+@st.cache_data(show_spinner=False)
 def _get_features():
     return compute_municipality_features(
-        fetch_municipal_prices(),
-        fetch_mortgage_rates(),
-        fetch_energy_consumption(),
+        _cached_prices(),
+        _cached_energy(),
     )
 
 
-@st.cache_data(show_spinner="Running clustering…")
+@st.cache_data(show_spinner=False)
 def _cluster(n_clusters: int):
     return run_clustering(_get_features(), n_clusters=n_clusters)
 
@@ -45,37 +54,85 @@ def _cluster(n_clusters: int):
 # Sidebar
 # ------------------------------------------------------------------
 
-NICE = {
+_BASE_COLORS = {
+    "Expensive, Growing Fast": "#E15759",
+    "Expensive, Slow Growth": "#4E79A7",
+    "Affordable, Growing Fast": "#F28E2B",
+    "Affordable, Slow Growth": "#76B7B2",
+}
+_OVERFLOW_PALETTE = [
+    "#59A14F",
+    "#B07AA1",
+    "#FF9DA7",
+    "#9C755F",
+    "#EDC948",
+    "#BAB0AC",
+]
+
+
+def _build_color_map(segment_names: list[str]) -> dict[str, str]:
+    color_map: dict[str, str] = {}
+    used: set[str] = set()
+    overflow = iter(_OVERFLOW_PALETTE)
+    for name in segment_names:
+        if name in _BASE_COLORS:
+            color = _BASE_COLORS[name]
+        else:
+            color = next((c for c in overflow if c not in used), "#AAAAAA")
+        color_map[name] = color
+        used.add(color)
+    return color_map
+
+
+def _segment_description(name: str) -> str:
+    if name in SEGMENT_DESCRIPTIONS:
+        return SEGMENT_DESCRIPTIONS[name]
+    base = name.replace(" II", "").replace(" III", "")
+    return SEGMENT_DESCRIPTIONS.get(
+        base, "A market subgroup with similar characteristics."
+    )
+
+
+DISPLAY_NAMES = {
     "latest_price": "Price",
-    "cagr": "Growth (all time)",
     "recent_growth": "Growth (last 5 yr)",
-    "volatility": "Stability",
-    "rate_sensitivity": "Rate sensitivity",
     "avg_gas": "Gas use",
     "avg_elec": "Electricity use",
 }
 
-n_clusters = st.sidebar.slider(
-    "Number of groups", 2, 8, 4
-)
+n_clusters = st.sidebar.slider("Number of groups", 2, 8, 4)
 x_axis = st.sidebar.selectbox(
-    "X axis", CLUSTER_FEATURES,
+    "X axis",
+    CLUSTER_FEATURES,
     index=CLUSTER_FEATURES.index("latest_price"),
-    format_func=lambda c: NICE[c],
+    format_func=lambda c: DISPLAY_NAMES[c],
 )
 y_axis = st.sidebar.selectbox(
-    "Y axis", CLUSTER_FEATURES,
+    "Y axis",
+    CLUSTER_FEATURES,
     index=CLUSTER_FEATURES.index("recent_growth"),
-    format_func=lambda c: NICE[c],
+    format_func=lambda c: DISPLAY_NAMES[c],
 )
 
-result = _cluster(n_clusters)
+_status_box = st.empty()
+with _status_box.status("Preparing data…", expanded=True) as _status:
+    st.write("Fetching CBS house prices…")
+    _cached_prices()
+    st.write("Fetching CBS energy consumption…")
+    _cached_energy()
+    st.write("Computing municipality features…")
+    _get_features()
+    st.write(f"Running k-means clustering (k={n_clusters})…")
+    result = _cluster(n_clusters)
+    _status.update(label="Ready", state="complete", expanded=False)
+_status_box.empty()
+
 features = result.features.copy()
 features["cluster"] = result.labels
-features["segment"] = (
-    features["cluster"].map(result.segment_map)
-)
+features["segment"] = features["cluster"].map(result.segment_map)
 features = features.reset_index()
+
+SEGMENT_COLORS = _build_color_map(list(result.segment_map.values()))
 
 # ------------------------------------------------------------------
 # Elbow chart (collapsed)
@@ -83,26 +140,46 @@ features = features.reset_index()
 
 with st.expander("Why this number of groups?", expanded=False):
     st.caption(
-        "Lower = municipalities fit their group better. "
-        "The 'elbow' is where adding more groups stops "
-        "helping much."
+        "**Inertia** (left axis): lower means municipalities fit "
+        "their group better. **Silhouette** (right axis): higher "
+        "means groups are better separated. Look for the inertia "
+        "elbow and the silhouette peak."
     )
-    elbow_fig = px.line(
-        x=list(range(2, 9)),
-        y=result.inertias,
-        markers=True,
-        labels={
-            "x": "Number of groups",
-            "y": "Spread within groups",
-        },
+    ks = list(range(2, 9))
+    elbow_fig = make_subplots(specs=[[{"secondary_y": True}]])
+    elbow_fig.add_trace(
+        go.Scatter(
+            x=ks,
+            y=result.inertias,
+            name="Inertia",
+            mode="lines+markers",
+            line=dict(color="#4E79A7"),
+        ),
+        secondary_y=False,
+    )
+    elbow_fig.add_trace(
+        go.Scatter(
+            x=ks,
+            y=result.silhouette_scores,
+            name="Silhouette",
+            mode="lines+markers",
+            line=dict(color="#F28E2B"),
+        ),
+        secondary_y=True,
     )
     elbow_fig.add_vline(
-        x=n_clusters, line_dash="dash",
+        x=n_clusters,
+        line_dash="dash",
         annotation_text=f"Current: {n_clusters}",
     )
     elbow_fig.update_layout(
-        margin=dict(t=20, b=40), height=300,
+        margin=dict(t=20, b=40),
+        height=300,
+        xaxis_title="Number of groups",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02),
     )
+    elbow_fig.update_yaxes(title_text="Inertia", secondary_y=False)
+    elbow_fig.update_yaxes(title_text="Silhouette score", secondary_y=True)
     st.plotly_chart(elbow_fig, use_container_width=True)
 
 # ------------------------------------------------------------------
@@ -113,8 +190,10 @@ st.subheader("All municipalities at a glance")
 
 fig = px.scatter(
     features,
-    x=x_axis, y=y_axis,
+    x=x_axis,
+    y=y_axis,
     color="segment",
+    color_discrete_map=SEGMENT_COLORS,
     hover_name="region",
     hover_data={
         "latest_price": ":€,.0f",
@@ -122,13 +201,15 @@ fig = px.scatter(
         "avg_gas": ":,.0f",
         "segment": True,
     },
-    labels=NICE,
+    labels=DISPLAY_NAMES,
     height=500,
 )
 fig.update_traces(marker=dict(size=8, opacity=0.75))
 fig.update_layout(
     legend=dict(
-        orientation="h", yanchor="bottom", y=1.02,
+        orientation="h",
+        yanchor="bottom",
+        y=1.02,
         title_text="",
     ),
     margin=dict(t=30, b=40),
@@ -140,10 +221,12 @@ for ax, col, setter in [
     if col in ("cagr", "recent_growth"):
         setter(**{f"{ax}axis_tickformat": ".0%"})
     elif col == "latest_price":
-        setter(**{
-            f"{ax}axis_tickprefix": "€",
-            f"{ax}axis_tickformat": ",",
-        })
+        setter(
+            **{
+                f"{ax}axis_tickprefix": "€",
+                f"{ax}axis_tickformat": ",",
+            }
+        )
     elif col == "avg_gas":
         setter(**{f"{ax}axis_ticksuffix": " m³"})
     elif col == "avg_elec":
@@ -157,22 +240,20 @@ st.plotly_chart(fig, use_container_width=True)
 
 st.subheader("The groups")
 
-active_segments = [
-    name for name in SEGMENT_DESCRIPTIONS
-    if name in features["segment"].values
-]
-cols = st.columns(len(active_segments))
-for col, name in zip(cols, active_segments):
-    n = int((features["segment"] == name).sum())
-    with col:
+active_segments = sorted(features["segment"].unique())
+_n_cols = min(len(active_segments), 4)
+_desc_cols = st.columns(_n_cols)
+for i, name in enumerate(active_segments):
+    n_muni = int((features["segment"] == name).sum())
+    with _desc_cols[i % _n_cols]:
         st.markdown(f"**{name}**")
-        st.caption(f"{n} municipalities — {SEGMENT_DESCRIPTIONS[name]}")
+        st.caption(f"{n_muni} municipalities — {_segment_description(name)}")
 
 compare_metric = st.selectbox(
     "Compare groups by",
     CLUSTER_FEATURES,
     index=0,
-    format_func=lambda c: NICE[c],
+    format_func=lambda c: DISPLAY_NAMES[c],
 )
 
 seg_avg = (
@@ -183,20 +264,24 @@ seg_avg = (
 )
 
 bar_fig = px.bar(
-    seg_avg, x="segment", y=compare_metric,
-    color="segment", labels=NICE, text_auto=True,
+    seg_avg,
+    x="segment",
+    y=compare_metric,
+    color="segment",
+    color_discrete_map=SEGMENT_COLORS,
+    labels=DISPLAY_NAMES,
+    text_auto=True,
 )
 bar_fig.update_layout(
-    showlegend=False, xaxis_title="",
+    showlegend=False,
+    xaxis_title="",
     margin=dict(t=20, b=40),
 )
 if compare_metric in ("cagr", "recent_growth"):
     bar_fig.update_layout(yaxis_tickformat=".1%")
     bar_fig.update_traces(texttemplate="%{y:.1%}")
 elif compare_metric == "latest_price":
-    bar_fig.update_layout(
-        yaxis_tickprefix="€", yaxis_tickformat=","
-    )
+    bar_fig.update_layout(yaxis_tickprefix="€", yaxis_tickformat=",")
     bar_fig.update_traces(texttemplate="€%{y:,.0f}")
 elif compare_metric in ("avg_gas", "avg_elec"):
     bar_fig.update_traces(texttemplate="%{y:,.0f}")
@@ -222,28 +307,15 @@ if selected:
     row = features[features["region"] == selected].iloc[0]
     segment = row["segment"]
 
-    st.info(
-        f"**{segment}** — "
-        f"{SEGMENT_DESCRIPTIONS.get(segment, '')}"
-    )
+    st.info(f"**{segment}** — " f"{_segment_description(segment)}")
 
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Price", f"€{row['latest_price']:,.0f}")
-    k2.metric(
-        "Growth (5 yr)", f"{row['recent_growth']:.1%}/yr"
-    )
-    rs = row["rate_sensitivity"]
-    rs_label = (
-        "Strong" if rs < -0.4
-        else "Moderate" if rs < -0.15
-        else "Weak"
-    )
-    k3.metric("Rate sensitivity", rs_label)
-    k4.metric("Gas use", f"{row['avg_gas']:,.0f} m³/yr")
+    k2.metric("Growth (5 yr)", f"{row['recent_growth']:.1%}/yr")
+    k3.metric("Gas use", f"{row['avg_gas']:,.0f} m³/yr")
+    k4.metric("Electricity use", f"{row['avg_elec']:,.0f} kWh/yr")
 
-    seg_peers = features[
-        features["segment"] == row["segment"]
-    ]
+    seg_peers = features[features["segment"] == row["segment"]]
     n_peers = len(seg_peers)
 
     st.caption(
@@ -251,38 +323,14 @@ if selected:
         f"municipalities in this group:"
     )
 
-    KEY_FEATURES = [
-        "latest_price", "recent_growth",
-        "avg_gas", "rate_sensitivity",
-    ]
+    KEY_FEATURES = ["latest_price", "recent_growth", "avg_gas", "avg_elec"]
 
     for feat in KEY_FEATURES:
         vals = seg_peers[feat]
         rank = int((vals < row[feat]).sum()) + 1
         pct = rank / n_peers
-
-        if feat == "avg_gas":
-            word = (
-                "low" if pct <= 0.33
-                else "average" if pct <= 0.66
-                else "high"
-            )
-        elif feat == "rate_sensitivity":
-            word = (
-                "less sensitive"
-                if pct <= 0.33
-                else "average"
-                if pct <= 0.66
-                else "more sensitive"
-            )
-        else:
-            word = (
-                "low" if pct <= 0.33
-                else "average" if pct <= 0.66
-                else "high"
-            )
-
+        word = "low" if pct <= 0.33 else "average" if pct <= 0.66 else "high"
         st.progress(
             min(pct, 1.0),
-            text=f"**{NICE[feat]}** — {word} for this group",
+            text=f"**{DISPLAY_NAMES[feat]}** — {word} for this group",
         )

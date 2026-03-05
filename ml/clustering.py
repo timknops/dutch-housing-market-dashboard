@@ -11,26 +11,20 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import silhouette_score
+from sklearn.preprocessing import RobustScaler
 
-
-# ---------------------------------------------------------------------------
-# Feature computation
-# ---------------------------------------------------------------------------
 
 def compute_municipality_features(
     municipal_prices: pd.DataFrame,
-    mortgage_rates: pd.DataFrame,
     energy_consumption: pd.DataFrame,
 ) -> pd.DataFrame:
     """Derive clustering features per municipality.
 
-    Combines CBS municipal prices, ECB mortgage rates, and
-    CBS energy consumption data.
+    Combines CBS municipal prices and CBS energy consumption data.
 
     Returns a DataFrame indexed by region with columns:
-      latest_price, cagr, recent_growth, volatility,
-      rate_sensitivity, avg_gas, avg_elec, n_years
+      latest_price, recent_growth, avg_gas, avg_elec, n_years
     """
     df = municipal_prices.copy()
 
@@ -46,98 +40,35 @@ def compute_municipality_features(
 
     n_years = grp["year"].count().rename("n_years")
 
-    def _cagr(g):
-        g = g.sort_values("year")
-        p0, p1 = g["avg_price"].iloc[0], g["avg_price"].iloc[-1]
-        n = g["year"].iloc[-1] - g["year"].iloc[0]
-        if n <= 0 or p0 <= 0:
-            return np.nan
-        return (p1 / p0) ** (1 / n) - 1
-
-    cagr = grp.apply(
-        _cagr, include_groups=False
-    ).rename("cagr")
-
     def _recent_growth(g):
         g = g.sort_values("year")
         last5 = g[g["year"] >= g["year"].max() - 4]
         if len(last5) < 2:
             return np.nan
         n = last5["year"].iloc[-1] - last5["year"].iloc[0]
-        return (
-            last5["avg_price"].iloc[-1]
-            / last5["avg_price"].iloc[0]
-        ) ** (1 / n) - 1
+        return (last5["avg_price"].iloc[-1] / last5["avg_price"].iloc[0]) ** (
+            1 / n
+        ) - 1
 
-    recent_growth = grp.apply(
-        _recent_growth, include_groups=False
-    ).rename("recent_growth")
-
-    def _volatility(g):
-        g = g.sort_values("year")
-        returns = g["avg_price"].pct_change().dropna()
-        return returns.std() if len(returns) >= 2 else np.nan
-
-    volatility = grp.apply(
-        _volatility, include_groups=False
-    ).rename("volatility")
-
-    # --- Rate sensitivity (combines CBS + ECB) ---
-    annual_rate = (
-        mortgage_rates[mortgage_rates["fixation"] == "AM"]
-        .assign(year=lambda d: d["date"].dt.year)
-        .groupby("year")["rate"]
-        .mean()
-    )
-    rate_chg = annual_rate.diff().rename("rate_chg")
-
-    df_with_growth = df.sort_values(["region", "year"]).copy()
-    df_with_growth["price_chg"] = (
-        df_with_growth.groupby("region")["avg_price"]
-        .pct_change()
-    )
-    df_with_growth = df_with_growth.merge(
-        rate_chg, on="year", how="left"
-    ).dropna(subset=["price_chg", "rate_chg"])
-
-    def _rate_corr(g):
-        if len(g) < 4:
-            return np.nan
-        return g["price_chg"].corr(g["rate_chg"])
-
-    rate_sensitivity = (
-        df_with_growth.groupby("region")
-        .apply(_rate_corr, include_groups=False)
-        .rename("rate_sensitivity")
+    recent_growth = grp.apply(_recent_growth, include_groups=False).rename(
+        "recent_growth"
     )
 
     features = pd.concat(
-        [
-            latest_price, cagr, recent_growth,
-            volatility, rate_sensitivity, n_years,
-        ],
+        [latest_price, recent_growth, n_years],
         axis=1,
     )
 
     # Merge energy consumption data (CBS 86159NED)
-    energy = energy_consumption.set_index("region")[
-        ["avg_gas", "avg_elec"]
-    ]
+    energy = energy_consumption.set_index("region")[["avg_gas", "avg_elec"]]
     features = features.join(energy, how="left")
 
     return features.dropna()
 
 
-# ---------------------------------------------------------------------------
-# Clustering
-# ---------------------------------------------------------------------------
-
 CLUSTER_FEATURES = [
     "latest_price",
-    "cagr",
     "recent_growth",
-    "volatility",
-    "rate_sensitivity",
     "avg_gas",
     "avg_elec",
 ]
@@ -148,8 +79,7 @@ SEGMENT_DESCRIPTIONS = {
         "quickly in recent years."
     ),
     "Expensive, Slow Growth": (
-        "Houses are expensive but price growth has slowed "
-        "down recently."
+        "Houses are expensive but price growth has slowed " "down recently."
     ),
     "Affordable, Growing Fast": (
         "Houses are still relatively affordable, but prices "
@@ -169,6 +99,7 @@ class ClusterResult:
     centers: pd.DataFrame
     segment_map: dict[int, str]
     inertias: list[float]
+    silhouette_scores: list[float]
 
 
 def _assign_segment_names(
@@ -210,19 +141,19 @@ def run_clustering(
     """Run k-means on municipality features."""
     X = features[CLUSTER_FEATURES].copy()
 
-    scaler = StandardScaler()
+    scaler = RobustScaler()
     X_scaled = scaler.fit_transform(X)
 
-    # Elbow data (for display)
-    inertias = []
+    # Elbow + silhouette data (for display)
+    inertias: list[float] = []
+    silhouette_scores: list[float] = []
     for k in range(2, 9):
         km = KMeans(n_clusters=k, n_init=10, random_state=42)
-        km.fit(X_scaled)
+        labels_k = km.fit_predict(X_scaled)
         inertias.append(km.inertia_)
+        silhouette_scores.append(float(silhouette_score(X_scaled, labels_k)))
 
-    km = KMeans(
-        n_clusters=n_clusters, n_init=10, random_state=42
-    )
+    km = KMeans(n_clusters=n_clusters, n_init=10, random_state=42)
     labels = pd.Series(
         km.fit_predict(X_scaled),
         index=features.index,
@@ -246,4 +177,5 @@ def run_clustering(
         centers=centers,
         segment_map=segment_map,
         inertias=inertias,
+        silhouette_scores=silhouette_scores,
     )
