@@ -4,6 +4,7 @@ import streamlit as st
 
 TABLE_PRICES_QUARTERLY = "85792ENG"
 TABLE_PRICES_MUNICIPAL = "83625ENG"
+TABLE_ENERGY_MUNICIPAL = "86159NED"
 
 
 @st.cache_data(ttl=3600, show_spinner="Fetching CBS quarterly price data…")
@@ -50,6 +51,12 @@ def fetch_municipal_prices() -> pd.DataFrame:
     """Fetch 83625ENG: average purchase price by municipality,
     annual from 1995."""
     raw = pd.DataFrame(cbsodata.get_data(TABLE_PRICES_MUNICIPAL))  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType, reportUnknownMemberType]
+    annual from 1995.
+
+    Filters out national, province, and landsdeel aggregates so only
+    actual municipalities remain.
+    """
+    raw = pd.DataFrame(cbsodata.get_data(TABLE_PRICES_MUNICIPAL))
 
     df = raw.rename(
         columns={
@@ -63,4 +70,49 @@ def fetch_municipal_prices() -> pd.DataFrame:
     df["period"] = df["period"].str.strip()
     df["year"] = df["period"].str[:4].astype(int)
 
+    aggregates = df["region"].str.contains(
+        r"\(PV\)|\(LD\)", regex=True, na=False
+    ) | (df["region"] == "The Netherlands")
+    df = df[~aggregates].copy()
+
+    df = df.dropna(subset=["avg_price"])
+
     return df
+
+
+@st.cache_data(
+    ttl=3600,
+    show_spinner="Fetching CBS energy consumption data…",
+)
+def fetch_energy_consumption() -> pd.DataFrame:
+    """Fetch 86159NED: avg gas and electricity use per
+    municipality (2024), for total housing stock.
+
+    Returns one row per municipality with columns:
+      region, avg_gas, avg_electricity, pct_district_heating
+    """
+    raw = pd.DataFrame(
+        cbsodata.get_data(TABLE_ENERGY_MUNICIPAL)
+    )
+    raw["SoortRegio_2"] = raw["SoortRegio_2"].str.strip()
+    raw["Woningkenmerken"] = (
+        raw["Woningkenmerken"].str.strip()
+    )
+
+    muni = raw[
+        (raw["SoortRegio_2"] == "Gemeente")
+        & (raw["Woningkenmerken"] == "Totaal woningen")
+    ].copy()
+
+    df = muni.rename(columns={
+        "Gemeentenaam_1": "region",
+        "GemiddeldAardgasverbruik_4": "avg_gas",
+        "GemiddeldeElektriciteitslevering_5": "avg_elec",
+        "Stadsverwarming_7": "pct_district_heating",
+    })
+    df["region"] = df["region"].str.strip()
+
+    return df[
+        ["region", "avg_gas", "avg_elec",
+         "pct_district_heating"]
+    ].reset_index(drop=True)
