@@ -40,11 +40,6 @@ def show_caption():
 def show_region_drilldown(prices: pd.DataFrame) -> None:
     st.subheader("Municipality/Province drill-down")
 
-    # In CBS table 83625ENG, provinces are tagged with (PV)
-    # while municipalities are usually plain names without a suffix.
-    provinces = prices[prices["region"].str.endswith("(PV)")].copy()
-    provinces["province"] = provinces["region"].str.replace(r"\s*\(PV\)", "", regex=True)
-
     municipalities = prices[
         ~prices["region"].str.contains(r"\((?:PV|LD)\)$", regex=True, na=False) &
             (prices["region"] != "The Netherlands")
@@ -53,8 +48,12 @@ def show_region_drilldown(prices: pd.DataFrame) -> None:
     latest_year = int(municipalities["year"].max())
     municipalities_latest = municipalities[municipalities["year"] == latest_year].copy()
 
-    all_provinces = sorted(cast(list[str], provinces["province"].unique().tolist()))
-    selected_province = st.selectbox("Select province", all_provinces, index=all_provinces.index("Noord-Holland"))
+    all_provinces = sorted(list(PROVINCE_MUNICIPALITIES.keys()))
+
+    default_province = "Noord-Holland"
+    default_index = all_provinces.index(default_province) if default_province in all_provinces else 0
+
+    selected_province = st.selectbox("Select province", all_provinces, index=default_index)
 
     # Filter out municipalities that have no data in the last 10 years
     recent_start = latest_year - 9

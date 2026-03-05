@@ -48,11 +48,7 @@ def fetch_quarterly_prices() -> pd.DataFrame:
 
 @st.cache_data(ttl=3600, show_spinner="Fetching CBS municipal price data…")
 def fetch_municipal_prices() -> pd.DataFrame:
-    """Fetch 83625ENG: average purchase price by municipality,
-    annual from 1995."""
-    raw = pd.DataFrame(cbsodata.get_data(TABLE_PRICES_MUNICIPAL))  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType, reportUnknownMemberType]
-    annual from 1995.
-
+    """
     Filters out national, province, and landsdeel aggregates so only
     actual municipalities remain.
     """
